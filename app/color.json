@@ -1,0 +1,10 @@
+{
+    "bg_color": "#ffc4da",
+    "frame_color": "#ffffff",
+    "accent_color": "#ff99bb",
+    "button_color": "#ffc4da",
+    "button_hover": "#ffb3d9",
+    "text_color": "#ff6ba8",
+    "progress_bg": "#ffe8f5",
+    "border_color": "#ffb3d9"
+}
