@@ -1,4 +1,3 @@
-
 from customtkinter import CTk, CTkButton, CTkLabel, CTkEntry, CTkFrame, CTkRadioButton, StringVar, CTkProgressBar
 from tkinter import messagebox, filedialog
 import threading
@@ -7,17 +6,17 @@ import yt_dlp
 import logging
 import requests
 import json
-
+from PIL import Image, ImageDraw
+import pystray
+from pystray import MenuItem as item
 logging.basicConfig(
     format="%(levelname)s: %(message)s",
     level=logging.INFO  
 )
 log = logging.getLogger("cytdlp")
-
 cookie = None
 
 def opts():
-    """yt-dlp options"""
     return {
         'extractor_args': {
             'youtube': {
@@ -38,22 +37,157 @@ def opts():
 class VideoDownloader(CTk):
     def __init__(self, language='vie'):
         super().__init__()
-        
         self.load_colors()
         self.load_language(language)
-        
         self.title(self.text['app_title'])
         self.geometry("700x750")
         self.resizable(False, False)
         self.configure(fg_color=self.colors['bg_color'])
-        
+
         self.download_mode = StringVar(value="video")
         self.platform = StringVar(value="youtube")
         self.output_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        self.is_downloading = False
+        self.download_threads = []
+        
+        self.tray_icon = None
+        self.setup_tray_icon()
+        
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         self.create_widgets()
     
+    def setup_tray_icon(self):
+
+        def create_icon_image():
+       
+            width = 64
+            height = 64
+            image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            
+            draw.ellipse([4, 4, 60, 60], fill='#ff99bb', outline='#ff69b4', width=3)
+            
+            heart_color = 'white'
+    
+            draw.ellipse([18, 20, 32, 34], fill=heart_color)
+     
+            draw.ellipse([32, 20, 46, 34], fill=heart_color)
+      
+            draw.polygon([(18, 27), (46, 27), (32, 44)], fill=heart_color)
+            
+            return image
+        
+        icon_image = create_icon_image()
+        
+        menu = pystray.Menu(
+            item(
+                self.text.get('tray_show', 'Hiện cửa sổ ♡'),
+                self.show_window,
+                default=True
+            ),
+            item(
+                self.text.get('tray_hide', 'Ẩn cửa sổ'),
+                self.hide_window
+            ),
+            pystray.Menu.SEPARATOR,
+            item(
+                self.text.get('tray_downloading', 'Đang tải: Không'),
+                lambda: None,
+                enabled=False
+            ),
+            pystray.Menu.SEPARATOR,
+            item(
+                self.text.get('tray_exit', 'Thoát'),
+                self.quit_app
+            )
+        )
+        
+        self.tray_icon = pystray.Icon(
+            "video_downloader",
+            icon_image,
+            self.text['app_title'],
+            menu
+        )
+        
+
+        tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
+        tray_thread.start()
+    
+    def show_window(self, icon=None, item=None):
+
+        self.after(0, self._show_window)
+    
+    def _show_window(self):
+
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+    
+    def hide_window(self, icon=None, item=None):
+
+        self.withdraw()
+        if self.tray_icon:
+            self.tray_icon.notify(
+                self.text.get('tray_notification_title', 'Đang chạy ngầm'),
+                self.text.get('tray_notification_message', 'App đang chạy ở system tray ♡')
+            )
+    
+    def quit_app(self, icon=None, item=None):
+ 
+        if self.is_downloading:
+            if icon:
+                self.tray_icon.notify(
+                    self.text.get('warning_title', 'Thông báo'),
+                    self.text.get('tray_warning_downloading', 'Đang có video tải xuống! Vui lòng đợi...')
+                )
+            return
+        
+        if self.tray_icon:
+            self.tray_icon.stop()
+        
+        self.quit()
+        self.destroy()
+    
+    def update_tray_status(self, downloading=False):
+
+        if not self.tray_icon:
+            return
+        
+        try:
+            status_text = self.text.get('tray_downloading', 'Đang tải: {}').format(
+                self.text.get('yes', 'Có') if downloading else self.text.get('no', 'Không')
+            )
+            
+            menu = pystray.Menu(
+                item(
+                    self.text.get('tray_show', 'Hiện cửa sổ ♡'),
+                    self.show_window,
+                    default=True
+                ),
+                item(
+                    self.text.get('tray_hide', 'Ẩn cửa sổ'),
+                    self.hide_window
+                ),
+                pystray.Menu.SEPARATOR,
+                item(
+                    status_text,
+                    lambda: None,
+                    enabled=False
+                ),
+                pystray.Menu.SEPARATOR,
+                item(
+                    self.text.get('tray_exit', 'Thoát'),
+                    self.quit_app
+                )
+            )
+            
+            self.tray_icon.menu = menu
+        except:
+            pass
+    
     def load_colors(self):
+
         try:
             with open('app/color.json', 'r', encoding='utf-8') as f:
                 self.colors = json.load(f)
@@ -70,61 +204,26 @@ class VideoDownloader(CTk):
             }
     
     def load_language(self, lang='vie'):
+   
         try:
             with open('app/language.json', 'r', encoding='utf-8') as f:
                 languages = json.load(f)
                 self.text = languages.get(lang, languages['vie'])
         except FileNotFoundError:
-
             self.text = {
-        "app_title": "♡ Tải Video ♡",
-        "main_title": "♡ TẢI VIDEO ♡",
-        "subtitle": "(❁´◡`❁) Tải video từ YouTube, TikTok, Facebook ✿",
-        "platform_label": "✿ Chọn nền tảng:",
-        "youtube": "📺 YouTube",
-        "tiktok": "🎵 TikTok",
-        "facebook": "👥 Facebook",
-        "url_label": "✿ Video URL:",
-        "url_placeholder": "Dán URL vào đây ♡",
-        "mode_label": "♥ Chế độ tải:",
-        "video_mode": "📹 Video (Chất lượng tốt nhất)",
-        "audio_mode": "🎵 Audio (MP3)",
-        "save_label": "📁 Vị trí lưu:",
-        "browse_btn": "Chọn",
-        "ready_status": "Có thể tải rùi ♡",
-        "download_btn": "♡ Tải xuống ♡",
-        "downloading_btn": "Đang tải...",
-        "footer": "✿ Made with love by Ellie (◕‿◕✿) ♥",
-        "warning_title": "Cảnh báo",
-        "warning_message": "Hãy nhập URL video!",
-        "success_title": "Hoàn thành",
-        "success_message": "Tải xuống thành công! ♡",
-        "error_title": "Lỗi",
-        "error_message": "Tải xuống thất bại:\n{error}",
-        "status_start": "Bắt đầu tải xuống... ✿",
-        "status_complete": "✅ Tải xong! (❁´◡`❁)",
-        "status_error": "❌ Lỗi: {error}",
-        "status_youtube_video": "Đang tải video YouTube... 📹",
-        "status_youtube_audio": "Đang tải audio YouTube... 🎵",
-        "status_tiktok_info": "Đang lấy thông tin TikTok... 🎵",
-        "status_tiktok_download": "Đang tải video TikTok... 📱",
-        "status_facebook": "Đang tải video Facebook... 👥",
-        "status_downloading": "Đang tải... {percent}% ♡",
-        "status_processing": "Đang xử lý... ✨",
-        "tiktok_error_info": "Không thể lấy thông tin video TikTok",
-        "tiktok_error_url": "Không tìm thấy link video",
-        "tiktok_error_api": "Lỗi kết nối API: {error}",
-        "tiktok_error_json": "Lỗi xử lý dữ liệu từ API",
-        "tiktok_error_download": "Lỗi tải TikTok: {error}",
-        "facebook_error": "Lỗi tải Facebook: {error}"
-    }
+                "app_title": "♡ Tải Video ♡",
+                "main_title": "♡ TẢI VIDEO ♡",
+                "subtitle": "(❁´◡`❁) Tải video từ YouTube, TikTok, Facebook ✿",
+                "download_btn": "♡ Tải xuống ♡",
+                "ready_status": "Có thể tải rùi ♡"
+            }
     
     def create_widgets(self):
-
+ 
         main_frame = CTkFrame(self, fg_color=self.colors['bg_color'], corner_radius=0)
         main_frame.pack(fill="both", expand=True, padx=30, pady=30)
         
-       
+ 
         title_label = CTkLabel(
             main_frame,
             text=self.text['main_title'],
@@ -173,6 +272,7 @@ class VideoDownloader(CTk):
             )
             radio.pack(side="left", padx=8)
         
+       
         input_frame = CTkFrame(main_frame, fg_color=self.colors['frame_color'], 
                               corner_radius=15, border_width=3, 
                               border_color=self.colors['button_color'])
@@ -238,7 +338,6 @@ class VideoDownloader(CTk):
             hover_color=self.colors['button_hover']
         )
         self.audio_radio.pack(side="left", padx=10)
-        
         path_frame = CTkFrame(main_frame, fg_color=self.colors['frame_color'], 
                              corner_radius=15, border_width=3, 
                              border_color=self.colors['button_color'])
@@ -281,7 +380,6 @@ class VideoDownloader(CTk):
             font=("Comic Sans MS", 11, "bold")
         )
         browse_btn.pack(side="right")
-        
         self.progress_bar = CTkProgressBar(
             main_frame,
             height=15,
@@ -326,10 +424,49 @@ class VideoDownloader(CTk):
         footer.pack(pady=(5, 0))
     
     def on_platform_change(self):
+    
         if self.platform.get() in ["tiktok", "facebook"]:
             self.mode_frame.pack_forget()
         else:
             self.mode_frame.pack(fill="x", pady=10, before=self.path_entry.master.master)
+    
+    def on_closing(self):
+        self.hide_window()
+    def show_notification(self, title, message):
+        try:
+            notif = CTk()
+            notif.title(title)
+            notif.geometry("400x150")
+            notif.resizable(False, False)
+            notif.configure(fg_color=self.colors['bg_color'])
+            notif.update_idletasks()
+            x = (notif.winfo_screenwidth() // 2) - (400 // 2)
+            y = (notif.winfo_screenheight() // 2) - (150 // 2)
+            notif.geometry(f'400x150+{x}+{y}')
+            
+            label = CTkLabel(
+                notif,
+                text=message,
+                font=("Comic Sans MS", 12),
+                text_color=self.colors['text_color'],
+                wraplength=350
+            )
+            label.pack(expand=True, pady=20, padx=20)
+            
+            btn = CTkButton(
+                notif,
+                text="OK ♡",
+                command=notif.destroy,
+                fg_color=self.colors['accent_color'],
+                hover_color=self.colors['button_hover'],
+                font=("Comic Sans MS", 11, "bold")
+            )
+            btn.pack(pady=(0, 20))
+        
+            notif.after(3000, notif.destroy)
+            
+        except:
+            pass
     
     def browse_folder(self):
         folder = filedialog.askdirectory(initialdir=self.output_path)
@@ -339,25 +476,31 @@ class VideoDownloader(CTk):
             self.path_entry.insert(0, folder)
     
     def update_progress(self, value, status_text):
+  
         self.progress_bar.set(value)
         self.status_label.configure(text=status_text)
         self.update_idletasks()
     
     def start_download(self):
+    
         url = self.url_entry.get().strip()
         if not url:
             messagebox.showwarning(self.text['warning_title'], 
                                  self.text['warning_message'])
             return
         
+        self.is_downloading = True
+        self.update_tray_status(downloading=True)
         self.download_btn.configure(state="disabled", text=self.text['downloading_btn'])
         self.update_progress(0.1, self.text['status_start'])
 
         thread = threading.Thread(target=self.download_thread, args=(url,))
-        thread.daemon = True
+        thread.daemon = False  
         thread.start()
+        self.download_threads.append(thread)
     
     def download_thread(self, url):
+
         try:
             platform = self.platform.get()
             
@@ -372,8 +515,7 @@ class VideoDownloader(CTk):
                 self.download_facebook(url)
             
             self.after(100, lambda: self.update_progress(1.0, self.text['status_complete']))
-            self.after(100, lambda: messagebox.showinfo(self.text['success_title'], 
-                                                       self.text['success_message']))
+            self.after(100, lambda: self.show_success_notification())
         except Exception as e:
             log.error(f"Download error: {e}")
             error_msg = self.text['error_message'].format(error=str(e))
@@ -381,10 +523,34 @@ class VideoDownloader(CTk):
                       self.text['status_error'].format(error=str(e))))
             self.after(100, lambda: messagebox.showerror(self.text['error_title'], error_msg))
         finally:
+            self.is_downloading = False
+            self.update_tray_status(downloading=False)
             self.after(100, lambda: self.download_btn.configure(state="normal", 
                                                                text=self.text['download_btn']))
+
+            self.after(100, lambda: self.show_window() if self.state() == 'withdrawn' else None)
+    
+    def show_success_notification(self):
+
+        try:
+   
+            if self.state() == 'withdrawn':
+                self.show_window()
+            
+            if self.tray_icon:
+                self.tray_icon.notify(
+                    self.text['success_title'],
+                    self.text['success_message']
+                )
+            
+            messagebox.showinfo(self.text['success_title'], 
+                              self.text['success_message'])
+        except:
+
+            log.info("Download completed successfully")
     
     def download_youtube_video(self, url):
+
         os.makedirs(self.output_path, exist_ok=True)
         
         ydl_opts = {
@@ -401,6 +567,7 @@ class VideoDownloader(CTk):
             ydl.download([url])
     
     def download_youtube_audio(self, url):
+       
         os.makedirs(self.output_path, exist_ok=True)
         
         ydl_opts = opts()
@@ -421,7 +588,9 @@ class VideoDownloader(CTk):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             self.after(100, lambda: self.update_progress(0.3, self.text['status_youtube_audio']))
             ydl.download([url])
+    
     def download_tiktok(self, url):
+
         os.makedirs(self.output_path, exist_ok=True)
         
         self.after(100, lambda: self.update_progress(0.2, self.text['status_tiktok_info']))
@@ -442,16 +611,22 @@ class VideoDownloader(CTk):
             
             if not video_url:
                 raise Exception(self.text['tiktok_error_url'])
+            
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
             if not safe_title:
                 safe_title = f"tiktok_{video_data.get('id', 'video')}"
+            
             filename = f"{safe_title}.mp4"
             filepath = os.path.join(self.output_path, filename)
+            
             self.after(100, lambda: self.update_progress(0.4, self.text['status_tiktok_download']))
+            
             video_response = requests.get(video_url, stream=True)
             video_response.raise_for_status()
+            
             total_size = int(video_response.headers.get('content-length', 0))
             downloaded = 0
+            
             with open(filepath, 'wb') as file:
                 for chunk in video_response.iter_content(chunk_size=8192):
                     if chunk:
@@ -465,6 +640,7 @@ class VideoDownloader(CTk):
                                      self.update_progress(0.4 + (p * 0.5), s))
             
             log.info(f"TikTok video saved: {filepath}")
+            
         except requests.RequestException as e:
             raise Exception(self.text['tiktok_error_api'].format(error=str(e)))
         except json.JSONDecodeError:
@@ -473,8 +649,9 @@ class VideoDownloader(CTk):
             if 'tiktok_error' in str(e):
                 raise
             raise Exception(self.text['tiktok_error_download'].format(error=str(e)))
-
+    
     def download_facebook(self, url):
+      
         os.makedirs(self.output_path, exist_ok=True)
         
         self.after(100, lambda: self.update_progress(0.2, self.text['status_facebook']))
@@ -495,6 +672,7 @@ class VideoDownloader(CTk):
             raise Exception(self.text['facebook_error'].format(error=str(e)))
     
     def progress_hook(self, d):
+  
         if d['status'] == 'downloading':
             try:
                 downloaded = d.get('downloaded_bytes', 0)
@@ -512,18 +690,5 @@ class VideoDownloader(CTk):
 
 
 if __name__ == "__main__":
-    with open('app/app', 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-        lang = 'vie'
-        for line in lines:
-            if line.startswith('language='):
-                lang = line.split('=')[1].strip()
-            if line.startswith('ico='):
-                icon_path = line.split('=')[1].strip()
-                if os.path.exists(icon_path):
-                    icon = icon_path
-                else:
-                    icon = "app/app.ico"
-    app = VideoDownloader(language=lang)
-    app.iconbitmap(icon)
+    app = VideoDownloader(language='vie')
     app.mainloop()
