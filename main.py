@@ -436,6 +436,7 @@ class VideoDownloader(CTk):
         try:
             notif = CTk()
             notif.title(title)
+            notif.iconbitmap('app/app.ico')
             notif.geometry("400x150")
             notif.resizable(False, False)
             notif.configure(fg_color=self.colors['bg_color'])
@@ -691,4 +692,5 @@ class VideoDownloader(CTk):
 
 if __name__ == "__main__":
     app = VideoDownloader(language='vie')
+    app.iconbitmap('app/app.ico')
     app.mainloop()
