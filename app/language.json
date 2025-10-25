@@ -61,7 +61,10 @@
         "file_exists_title": "File đã tồn tại",
         "file_exists_message": "File \"{filename}\" đã tồn tại!\n\nYES: Ghi đè\nNO: Đổi tên tự động\nCANCEL: Hủy tải",
         "download_cancelled": "Đã hủy tải xuống",
-        "unsupported_platform": "URL không được hỗ trợ!\n\nChỉ hỗ trợ: YouTube, TikTok, Facebook"
+        "unsupported_platform": "URL không được hỗ trợ!\n\nChỉ hỗ trợ: YouTube, TikTok, Facebook",
+        "open_folder_btn": "📁 Mở thư mục",
+        "info_title": "Thông báo",
+"download_background": "Download đang chạy ngầm!\n\nCửa sổ sẽ ẩn đi."
     },
     "en": {
         "app_title": "♡ Video Downloader ♡",
@@ -125,6 +128,9 @@
         "file_exists_title": "File already exists",
         "file_exists_message": "File \"{filename}\" already exists!\n\nYES: Overwrite\nNO: Auto rename\nCANCEL: Cancel download",
         "download_cancelled": "Download canceled",
-        "unsupported_platform": "Not support this url!\n\nSupport only: YouTube, TikTok, Facebook"
+        "unsupported_platform": "Not support this url!\n\nSupport only: YouTube, TikTok, Facebook",
+        "open_folder_btn": "📁 Open folder",
+        "info_title": "Infomation",
+"download_background": "Download is running!\n\nThe window will hide."
     }
 }

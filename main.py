@@ -7,10 +7,12 @@ import logging
 import requests
 import json
 from PIL import Image, ImageDraw
-import pystray
-from pystray import MenuItem as item
 import sys
 import time
+import subprocess
+import platform as sys_platform
+
+
 
 logging.basicConfig(
     format="%(levelname)s: %(message)s",
@@ -18,7 +20,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("cytdlp")
 cookie = None
-
+try:
+    import pystray
+    from pystray import MenuItem as item
+    TRAY_AVAILABLE = True
+except (ImportError, ValueError):
+    TRAY_AVAILABLE = False
+    log.warning("System tray not available - running without tray icon")
 LOCK_FILE = "app.lock"
 
 def opts():
@@ -70,9 +78,15 @@ class VideoDownloader(CTk):
         self.is_downloading = False
         self.download_threads = []
         self.last_activity_time = time.time()
+        self.window_visible = True
+        self.button_timer = None
         
-        self.tray_icon = None
-        self.setup_tray_icon()
+        if TRAY_AVAILABLE:
+            self.tray_icon = None
+            self.setup_tray_icon()
+        else:
+            self.tray_icon = None
+            log.info("Running without system tray support")
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -96,6 +110,9 @@ class VideoDownloader(CTk):
         self.last_activity_time = time.time()
     
     def setup_tray_icon(self):
+        if not TRAY_AVAILABLE:
+            return
+            
         def create_icon_image():
             width = 64
             height = 64
@@ -446,13 +463,51 @@ class VideoDownloader(CTk):
     
     def on_closing(self):
         if self.is_downloading:
-            self.hide_window()
+            if TRAY_AVAILABLE:
+                self.hide_window()
+            else:
+                messagebox.showinfo(
+                    self.text.get('info_title', 'Thông báo'),
+                    self.text.get('download_background', 'Download đang chạy ngầm!\n\nCửa sổ sẽ ẩn đi.')
+                )
+                self.iconify()
         else:
             if messagebox.askyesno(
                 self.text.get('confirm_title', 'Xác nhận'),
                 self.text.get('confirm_exit', 'Bạn có chắc muốn thoát không?')
             ):
                 self.quit_app()
+    
+    def open_folder(self):
+        if os.path.exists(self.output_path):
+            system = sys_platform.system()
+            if system == 'Windows':
+                os.startfile(self.output_path)
+            elif system == 'Darwin':
+                subprocess.run(['open', self.output_path])
+            else:
+                subprocess.run(['xdg-open', self.output_path])
+        self.reset_activity_timer()
+    
+    def switch_to_open_folder_button(self):
+        if self.button_timer:
+            self.after_cancel(self.button_timer)
+        
+        self.download_btn.configure(
+            text=self.text.get('open_folder_btn', '📁 Mở thư mục'),
+            command=self.open_folder,
+            state="normal"
+        )
+        
+        self.button_timer = self.after(6000, self.reset_download_button)
+    
+    def reset_download_button(self):
+        self.download_btn.configure(
+            text=self.text['download_btn'],
+            command=self.start_download,
+            state="normal"
+        )
+        self.button_timer = None
     
     def browse_folder(self):
         folder = filedialog.askdirectory(initialdir=self.output_path)
@@ -461,6 +516,17 @@ class VideoDownloader(CTk):
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, folder)
         self.reset_activity_timer()
+    
+    def detect_platform(self, url):
+        url_lower = url.lower()
+        if 'youtube.com' in url_lower or 'youtu.be' in url_lower:
+            return 'youtube'
+        elif 'tiktok.com' in url_lower:
+            return 'tiktok'
+        elif 'facebook.com' in url_lower or 'fb.watch' in url_lower or 'fb.com' in url_lower:
+            return 'facebook'
+        else:
+            return None
     
     def update_progress(self, value, status_text):
         self.progress_bar.set(value)
@@ -490,17 +556,7 @@ class VideoDownloader(CTk):
                     counter += 1
                 return f"{base}_{counter}{ext}"
         return filepath
-    def detect_platform(self, url: str):
-        url = url.lower()
-        if "youtube.com" in url or "youtu.be" in url:
-            return "youtube"
-        elif "tiktok.com" in url:
-            return "tiktok"
-        elif "facebook.com" in url or "fb.watch" in url:
-            return "facebook"
-        else:
-            return None
-        
+    
     def start_download(self):
         url = self.url_entry.get().strip()
         if not url:
@@ -543,6 +599,7 @@ class VideoDownloader(CTk):
                 self.download_facebook(url)
             
             self.after(100, lambda: self.update_progress(1.0, self.text['status_complete']))
+            self.after(100, lambda: self.switch_to_open_folder_button())
             log.info("Download completed successfully")
         except Exception as e:
             log.error(f"Download error: {e}")
@@ -553,8 +610,6 @@ class VideoDownloader(CTk):
         finally:
             self.is_downloading = False
             self.update_tray_status(downloading=False)
-            self.after(100, lambda: self.download_btn.configure(state="normal", 
-                                                               text=self.text['download_btn']))
             self.reset_activity_timer()
     
     def download_youtube_video(self, url):
